@@ -1,5 +1,9 @@
 package cslab.flinklab;
 
+import java.util.List;
+import java.util.Arrays;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.flink.api.common.functions.FlatMapFunction;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.utils.ParameterTool;
@@ -9,14 +13,11 @@ import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.sink.PrintSinkFunction;
 import org.apache.flink.streaming.api.functions.sink.SinkFunction;
-import org.apache.flink.streaming.connectors.twitter.TwitterSource;
 import org.apache.flink.util.Collector;
 
-/**
- * <p>Usage: <code>Usage: TwitterExample [--output &lt;path&gt;]
- * [--twitter-source.consumerKey &lt;key&gt; --twitter-source.consumerSecret &lt;secret&gt; --twitter-source.token &lt;token&gt; --twitter-source.tokenSecret &lt;tokenSecret&gt;]</code><br>
- */
 public class TwitterExample {
+
+    private static final Logger LOG = LoggerFactory.getLogger(TwitterExample.class);
 
     public static void main(String[] args) throws Exception {
         // Checking input parameters
@@ -28,12 +29,12 @@ public class TwitterExample {
         env.setParallelism(params.getInt("parallelism", 1));
 
         // Define the Twitter Source
-        DataStream<String> streamSource = env.addSource(new TwitterSource(params.getProperties()));
+        DataStream<String> streamSource = env.addSource(new CustomTwitterSource());
 
         // Transform
         DataStream<Tuple2<String, Integer>> tweets = streamSource
                 // selecting English tweets and splitting to (word, 1)
-                .flatMap(new GetHashTags())
+                .flatMap(new GetWordCount())
                 // group by words and sum their occurrences
                 .keyBy(0)
                 .sum(1);
@@ -49,7 +50,7 @@ public class TwitterExample {
     // *************************************************************************
     // Custom FlatMap Function
     // *************************************************************************
-    public static class GetHashTags implements FlatMapFunction<String, Tuple2<String, Integer>> {
+    public static class GetWordCount implements FlatMapFunction<String, Tuple2<String, Integer>> {
         private static final long serialVersionUID = 1L;
 
         private transient ObjectMapper jsonParser;
@@ -63,15 +64,14 @@ public class TwitterExample {
             // deserialize the tweet json to JsonNode object
             JsonNode jsonNode = jsonParser.readTree(value);
 
-            //get the hashtags
+            // get the word count
             try {
-                JsonNode jsonNodeHashTags = jsonNode.get("entities").get("hashtags");
-                for (JsonNode jsonNodeHashTag: jsonNodeHashTags){
-                    String hashtag = jsonNodeHashTag.get("text").textValue();
-                    out.collect(new Tuple2<>(hashtag, 1));
+                List<String> words = Arrays.asList(jsonNode.get("text").textValue().split(" "));
+                for (String word : words) {
+                    out.collect(new Tuple2<>(word, 1));
                 }
-            }catch(Exception e) {
-                //System.out.println("No hashtag in tweets. Skip it ");
+            } catch (Exception e) {
+                // LOG.info(e.toString());
             }
         }
     }
